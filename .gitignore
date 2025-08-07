@@ -1,0 +1,78 @@
+# Python
+*.pyc
+*.pyo
+*.pyd
+__pycache__/
+*.so
+final_output.json
+
+# Django
+*.log
+*.pot
+*.pyc
+*.sqlite3
+db.sqlite3
+db.sqlite3-journal
+media/
+staticfiles/
+*.log
+logs/
+# Environment files
+.env
+.venv/
+venv/
+ENV/
+env/
+*.env
+
+# VS Code
+.vscode/
+
+# MacOS
+.DS_Store
+
+# PyCharm
+.idea/
+
+# Jupyter Notebook
+.ipynb_checkpoints/
+
+# mypy
+.mypy_cache/
+
+# pipenv
+Pipfile.lock
+
+# Poetry
+poetry.lock
+
+# Django migrations
+*/migrations/*
+migrations/
+
+# Docker
+docker-compose.override.yml
+.docker/
+
+# Coverage reports
+.coverage
+*.coveragerc
+
+# Test output
+nosetests.xml
+coverage.xml
+*.coveragerc
+*.py,cover
+*.log
+
+# NPM packages
+node_modules/
+
+# SASS
+.sass-cache/
+
+# Pytest
+.cache/
+.vscode/
+staticfiles/
+static/
