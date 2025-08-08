@@ -49,25 +49,32 @@ def assign_category_from_name(part_name: str) -> PartCategory:
 
 class JSONUploadAPIView(APIView):
     def post(self, request):
-        serializer = JSONUploadSerializer(data=request.data)
-        if serializer.is_valid():
-            file_obj = serializer.validated_data['file']
-            save_path = os.path.join(settings.BASE_DIR, 'models', 'jsonfile', file_obj.name)
-            os.makedirs(os.path.dirname(save_path), exist_ok=True)
+        try:
+            serializer = JSONUploadSerializer(data=request.data)
+            if serializer.is_valid():
+                file_obj = serializer.validated_data['file']
+                save_path = os.path.join(settings.BASE_DIR, 'models', 'jsonfile', file_obj.name)
+                os.makedirs(os.path.dirname(save_path), exist_ok=True)
 
-            with open(save_path, 'wb+') as destination:
-                for chunk in file_obj.chunks():
-                    destination.write(chunk)
+                with open(save_path, 'wb+') as destination:
+                    for chunk in file_obj.chunks():
+                        destination.write(chunk)
 
-            process_uploaded_json(save_path) 
+                process_uploaded_json(save_path) 
 
-            return Response({
-                "message": "File uploaded successfully",
-                "file_path": save_path
-            }, status=status.HTTP_201_CREATED)
+                return Response({
+                    "message": "File uploaded successfully",
+                    "file_path": save_path
+                }, status=status.HTTP_201_CREATED)
 
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        
+        except Exception as e:
+            # اصلاح: بازگرداندن Response بجای print
+            return Response(
+                {"error": f"An error occurred: {str(e)}"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
 class ImportUnifiedPartsAPIView(APIView):
     FA_CAR_TO_DATA = {fa: (code_en, brand_en) for code_en, fa, brand_en in CAR_CHOICES}
 

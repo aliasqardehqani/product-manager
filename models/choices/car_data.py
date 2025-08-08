@@ -40,7 +40,20 @@ CAR_CHOICES = [
     ("rd", "RD", "unknown"),
 ]
 
-CAR_MAP = {fa: (en, brand_en) for en, fa, brand_en in CAR_CHOICES}
+# ساخت دیکشنری به صورت ایمن با بررسی طول هر آیتم
+CAR_MAP = {}
+for idx, item in enumerate(CAR_CHOICES):
+    if len(item) == 3:
+        en, fa, brand_en = item
+        CAR_MAP[fa] = (en, fa, brand_en)
+
+    else:
+        print(f"Warning: skipping invalid CAR_CHOICES item at index {idx}: {item}")
+
+# تست چاپ کردن چند مقدار
+print("Sample CAR_MAP entries:")
+for k, v in list(CAR_MAP.items())[:5]:
+    print(f"{k}: {v}")
 
 BRAND_DISPLAY_NAMES = {
     "peugeot": "پژو",
