@@ -1,8 +1,9 @@
 import json
 from django.db import transaction
 from .models import PartCategory, PartUnified, CarsModel, CarBrandsModel
-from models.choices.car_data import CAR_MAP, BRAND_DISPLAY_NAMES, CATEGORY_KEYWORDS, CATEGORY_PATHS
-
+from products.choices.car_data import CAR_MAP, BRAND_DISPLAY_NAMES, CATEGORY_KEYWORDS, CATEGORY_PATHS
+from core.logs import CustomLogger
+logger = CustomLogger()
 
 def find_category_path(title):
     """
@@ -95,7 +96,48 @@ def process_uploaded_json(file_path):
                 part.cars.set(car_objects)
 
     except Exception as e:
-        print(str(e))
+        logger.log(
+                module_name="products.tasks",
+                class_name="process_uploaded_json",
+                message="Error when manage daata into db",
+                error=str(e)
+            )
 
-
-
+def manage_tmkb2b(json_path):
+    import json
+    with open(json_path, 'r', encoding='utf-8') as f:
+        data_list = json.load(f)
+    
+    for item in data_list:
+        commercial_code = item.get('tegaratCode') or item.get('commercial_code') 
+        if not commercial_code:
+            continue
+        
+        try:
+            obj = PartUnified.objects.get(commercial_code=commercial_code)
+            obj.name = item.get('name', obj.name)
+            obj.price = item.get('price', obj.price)
+            obj.save()
+        except PartUnified.DoesNotExist:
+            try:
+                obj = PartUnified.objects.create(
+                    name = item.get('name', ''),
+                    commercial_code = commercial_code,
+                    price = item.get('price', 0),
+                    internal_code = item.get('ekhtesasiCode', ''), 
+                )
+                obj.save()
+            except Exception as e:
+                logger.log(
+                    module_name="products.tasks",
+                    class_name="manage_tmkb2b",
+                    message="Error when creating product into db",
+                    error=str(e)
+                )
+        except Exception as e:
+            logger.log(
+                module_name="products.tasks",
+                class_name="manage_tmkb2b",
+                message="Error when manage data into db",
+                error=str(e)
+            )

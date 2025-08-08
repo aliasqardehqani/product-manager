@@ -8,44 +8,26 @@ from rest_framework import status
 from rest_framework import generics, filters
 from rest_framework.pagination import PageNumberPagination
 
-from .serializers import CarBrandWithCarsSerializer, PartSerializer, PartUnifiedSerializer, JSONUploadSerializer
+from .serializers import (
+    CarBrandWithCarsSerializer, 
+    PartSerializer, 
+    PartUnifiedSerializer, 
+    JSONUploadSerializer,
+    CategorySerializer, 
+    ProductSerializer)
 from .models import PartUnified, CarBrandsModel, CarsModel, PartCategory
-from models.choices.car_data import CAR_MAP, BRAND_DISPLAY_NAMES, CAR_CHOICES, CATEGORY_KEYWORDS, CATEGORY_PATHS
-from .tasks import process_uploaded_json 
+from products.choices.car_data import CAR_MAP, BRAND_DISPLAY_NAMES, CAR_CHOICES, CATEGORY_KEYWORDS, CATEGORY_PATHS
+from .tasks import process_uploaded_json, manage_tmkb2b
 
 from core.logs import CustomLogger
 logger = CustomLogger()
 
-def assign_category_from_name(part_name: str) -> PartCategory:
-    matched_keys = []
-    part_name_lower = part_name.lower()
+class StandardResultsSetPagination(PageNumberPagination):
+    page_size = 10
+    page_size_query_param = 'page_size'
+    max_page_size = 100
 
-    for key, keywords in CATEGORY_KEYWORDS.items():
-        for word in keywords:
-            if word.lower() in part_name_lower:
-                matched_keys.append(key)
-                break
 
-    if not matched_keys:
-        category, _ = PartCategory.objects.get_or_create(name="نامشخص", parent=None)
-        category.description = f"نامشخص - {part_name}"
-        category.save()
-        return category
-    
-    matched_key = matched_keys[0]
-
-    path = CATEGORY_PATHS.get(matched_key, ["نامشخص"])
-    parent = None
-    category = None
-
-    for node in path:
-        category, _ = PartCategory.objects.get_or_create(name=node, parent=parent)
-        parent = category
-
-        category.description = f"{category.description or ''}\n{part_name}".strip()
-    category.save()
-
-    return category
 
 class JSONUploadAPIView(APIView):
     def post(self, request):
@@ -60,125 +42,33 @@ class JSONUploadAPIView(APIView):
                     for chunk in file_obj.chunks():
                         destination.write(chunk)
 
-                process_uploaded_json(save_path) 
+                if file_obj.name == "allData.json":
+                    manage_tmkb2b(save_path)
+                elif file_obj.name == "final_output":
+                    process_uploaded_json(save_path)
+                else:
+                    pass
+                
+                if os.path.exists(save_path):
+                    os.remove(save_path)
 
                 return Response({
-                    "message": "File uploaded successfully",
+                    "message": "File uploaded and processed successfully",
                     "file_path": save_path
                 }, status=status.HTTP_201_CREATED)
 
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-        
         except Exception as e:
-            # اصلاح: بازگرداندن Response بجای print
+            logger.log(
+                module_name="products.views",
+                class_name="JSONUploadAPIView",
+                message="Error from manage data into db ",
+                error=str(e)
+            )
             return Response(
                 {"error": f"An error occurred: {str(e)}"},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
-class ImportUnifiedPartsAPIView(APIView):
-    FA_CAR_TO_DATA = {fa: (code_en, brand_en) for code_en, fa, brand_en in CAR_CHOICES}
-
-    def post(self, request):
-        try:
-            data = request.data
-            # file_path = os.path.join(settings.BASE_DIR, 'final_output.json')
-            # with open(file_path, 'r', encoding='utf-8') as f:
-            #     data = json.load(f)
-            categories = data.get("categories") or []
-
-            for cat in categories:
-                category_title = cat.get("title", "")
-                category_url = cat.get("url", "")
-                category_description = cat.get("description", "")
-                image_urls = cat.get("images") or []
-
-                products = cat.get("products") or []
-                for product in products:
-                    try:
-                        internal_code = product.get("tegaratCode")
-                        commercial_code = product.get("ekhtesasiCode")
-                        name = product.get("name", "").strip()
-                        price = product.get("price", 0)
-                        description = product.get("description", "")
-
-                        if not internal_code or not commercial_code or not name:
-                            continue
-
-                        if PartUnified.objects.filter(name=name).exists():
-                            continue  
-                        cars = product.get("cars") or []
-                        added_car_codes = set()
-                        car_objects = []
-                        for car_name in cars:
-                            if not car_name:
-                                continue
-                            car_name = car_name.strip()
-
-                            if car_name in self.FA_CAR_TO_DATA:
-                                code, brand_code = self.FA_CAR_TO_DATA[car_name]
-                                brand_display = BRAND_DISPLAY_NAMES.get(brand_code, brand_code)
-
-                                if code in added_car_codes:
-                                    continue
-
-                                brand_obj, _ = CarBrandsModel.objects.get_or_create(
-                                    name=brand_code,
-                                    defaults={"display_name": brand_display}
-                                )
-
-                                car_obj, _ = CarsModel.objects.get_or_create(
-                                    code=code,
-                                    defaults={"name": car_name, "brand": brand_obj}
-                                )
-
-                                car_objects.append(car_obj)
-                                added_car_codes.add(code)
-
-                            else:
-                                logger.log(
-                                    module_name="products.views",
-                                    class_name="import_unified_parts_view",
-                                    message=f"Unknown car name: {car_name}",
-                                    error="car_not_in_choices"
-                                )
-
-                        category = assign_category_from_name(name)
-
-                        part = PartUnified.objects.create(
-                            name=name,
-                            internal_code=internal_code,
-                            commercial_code=commercial_code,
-                            price=price,
-                            description=description,
-                            category_title=category_title,
-                            category_url=category_url,
-                            category_description=category_description,
-                            category=category,
-                            image_urls=image_urls
-                        )
-
-                        part.cars.set(car_objects)
-                        part.save()
-
-                    except Exception as e:
-                        logger.log(
-                            module_name="products.views",
-                            class_name="import_unified_parts_view",
-                            message="Error processing product",
-                            error=str(e)
-                        )
-                        continue
-
-            return Response({"detail": "Unified import completed successfully."}, status=status.HTTP_201_CREATED)
-
-        except Exception as e:
-            logger.log(
-                module_name="products.views",
-                class_name="import_unified_parts_view",
-                message="Error in import",
-                error=str(e)
-            )
-            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
 class ListOfBrandsAPIView(APIView):
     def get(self, request):
@@ -268,6 +158,7 @@ class FilterByPartTypeAPIView(APIView):
         ('consumable', 'Consumable'),  
         ('spare', 'Spare Part'),       
     )
+
     '''
     def post(self, request):
         part_type = request.data.get("part_type")
@@ -298,21 +189,21 @@ class PartDetailAPIView(APIView):
             part = PartUnified.objects.only(
                 'id', 'name', 'internal_code', 'commercial_code', 'price', 'part_type'
             ).get(id=part_id)
+            serializer = PartUnifiedSerializer(part)
+            return Response(serializer.data, status=status.HTTP_200_OK)
         except PartUnified.DoesNotExist:
             return Response({'error': 'Part not found.'}, status=status.HTTP_404_NOT_FOUND)
         except ValueError:
             return Response({'error': 'Invalid ID format.'}, status=status.HTTP_400_BAD_REQUEST)
+        except Exception as e:
+            logger.log(
+                module_name="products.views",
+                class_name="PartDetailAPIView",
+                message="Error get product all list",
+                error=str(e)
+            )
 
-        serializer = PartUnifiedSerializer(part)
-        return Response(serializer.data, status=status.HTTP_200_OK)
 # -------------------------------------------------------------------------------------
-
-
-class StandardResultsSetPagination(PageNumberPagination):
-    page_size = 10
-    page_size_query_param = 'page_size'
-    max_page_size = 100
-
 class PartUnifiedListAPIView(generics.ListAPIView):
     '''
         >>> GET /api/parts/
@@ -336,3 +227,56 @@ class PartUnifiedListAPIView(generics.ListAPIView):
         if category_id:
             queryset = queryset.filter(category_id=category_id)
         return queryset
+
+class CategoryListAPIView(APIView):
+    def get(self, request):
+        try:
+            categories = PartCategory.objects.all()
+            serializer = CategorySerializer(categories, many=True)
+            return Response(serializer.data)
+        except Exception as e:
+            logger.log(
+                module_name="products.views",
+                class_name="CategoryListAPIView",
+                message="Error from list of category",
+                error=str(e)
+            )
+            return Response({"error": "Category have error"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+class ProductByCategoryAPIView(APIView):
+    def post(self, request):
+        try:
+            category_id = request.data.get('id')
+            if not category_id:
+                return Response({"error": "Category ID is required"}, status=status.HTTP_400_BAD_REQUEST)
+
+            try:
+                category = PartCategory.objects.get(id=category_id)
+            except PartCategory.DoesNotExist:
+                return Response({"error": "Category not found"}, status=status.HTTP_404_NOT_FOUND)
+
+            products = PartUnified.objects.filter(category=category).order_by('id')
+
+            # get page and page_size from body with defaults
+            page_number = request.data.get('page', 1)
+            page_size = request.data.get('page_size', 10)
+
+            paginator = StandardResultsSetPagination()
+            paginator.page_size = page_size  # override default page size if provided
+
+            # Manually set query params for paginator, trick to set page number:
+            request.query_params._mutable = True  # make query_params mutable temporarily
+            request.query_params['page'] = str(page_number)
+            request.query_params._mutable = False
+
+            result_page = paginator.paginate_queryset(products, request, view=self)
+            serializer = PartUnifiedSerializer(result_page, many=True)
+            return paginator.get_paginated_response(serializer.data)
+        except Exception as e:
+            logger.log(
+                module_name="products.views",
+                class_name="ProductByCategoryAPIView",
+                message="Error from list of category",
+                error=str(e)
+            )
+        

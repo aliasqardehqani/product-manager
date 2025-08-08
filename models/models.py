@@ -100,6 +100,7 @@ class PartUnified(models.Model):
         default=0,
         help_text="Current inventory count for the part"
     )
+    
 
     has_warranty = models.BooleanField(
         default=False,
@@ -112,6 +113,10 @@ class PartUnified(models.Model):
         help_text="Name of the warranty in Persian"
     )
 
+    @property
+    def inventory_warning(self):
+        if self.inventory < 7:
+            return "برای اطلاع از موجودی تماس بگیرید : +980000000000"
+        return ""
     def __str__(self):
         return f"{self.name} - {self.commercial_code} - Category: {self.category_title}"
-
